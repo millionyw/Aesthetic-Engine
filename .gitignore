@@ -13,8 +13,7 @@ env/
 .env
 
 # --- 数据集 (核心：绝对不要上传你的私密图片) ---
-data/raw/           # 原始从 X 抓取的图片
-data/processed/     # 裁剪后的头像或对齐后的图片
+data/
 *.jpg
 *.jpeg
 *.png
