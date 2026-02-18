@@ -1,0 +1,36 @@
+# --- 系统与 IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Python 环境 ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# --- 数据集 (核心：绝对不要上传你的私密图片) ---
+data/raw/           # 原始从 X 抓取的图片
+data/processed/     # 裁剪后的头像或对齐后的图片
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# --- 模型权重与特征 (大文件) ---
+models/*.pth
+models/*.onnx
+models/*.bin
+*.ckpt
+embeddings/         # 存储提取出的特征向量 (Vector Database files)
+
+# --- 数据库与日志 ---
+*.db                # 你的打分记录 (SQLite 等)
+*.log
+runs/               # Tensorboard 或训练日志
+
+# --- 配置文件 ---
+config.local.yaml   # 包含你的 X API Keys 的本地配置
