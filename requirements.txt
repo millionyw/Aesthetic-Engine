@@ -1,4 +1,9 @@
-torch
 transformers
 tqdm
 pillow
+streamlit
+streamlit-shortcuts
+pandas
+scikit-learn
+facenet-pytorch
+ultralytics
