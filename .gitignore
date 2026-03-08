@@ -3,6 +3,7 @@
 Thumbs.db
 .vscode/
 .idea/
+.trae/
 Ultralytics/
 
 # --- Python 环境 ---
@@ -34,3 +35,4 @@ runs/               # Tensorboard 或训练日志
 
 # --- 配置文件 ---
 config.local.yaml   # 包含你的 X API Keys 的本地配置
+src/前5论对话.md

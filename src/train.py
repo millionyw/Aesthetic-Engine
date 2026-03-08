@@ -1,6 +1,10 @@
+import argparse
+import csv
 import os
 import pickle
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +13,8 @@ from sklearn.linear_model import RidgeCV
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+from db import fetch_images
 
 
 def load_features(path: str):
@@ -41,8 +47,53 @@ def spearman_corr(a: np.ndarray, b: np.ndarray):
     return float(np.corrcoef(a_rank, b_rank)[0, 1])
 
 
+def sync_human_scores():
+    """从数据库同步人类打分到 labels.csv"""
+    labels_path = "./data/labels.csv"
+    
+    # 获取 DB 中有人类打分的数据
+    images = fetch_images()
+    human_scored = {img['path']: img['human_score'] for img in images if img['human_score'] is not None}
+    
+    if not human_scored:
+        return
+
+    # 读取现有的 labels.csv
+    current_labels = {}
+    if os.path.exists(labels_path):
+        try:
+            df = pd.read_csv(labels_path)
+            if "filename" in df.columns and "score" in df.columns:
+                for _, row in df.iterrows():
+                    current_labels[str(row['filename'])] = float(row['score'])
+        except Exception:
+            pass
+            
+    # 找出差异并追加
+    updates = []
+    for path, score in human_scored.items():
+        # 如果路径不在 csv 中，或者分数不同，则更新（追加）
+        if path not in current_labels or abs(current_labels[path] - score) > 0.1:
+            updates.append([path, score])
+            
+    if updates:
+        print(f"同步 {len(updates)} 条人类打分到 {labels_path}")
+        os.makedirs(os.path.dirname(labels_path), exist_ok=True)
+        file_exists = os.path.exists(labels_path)
+        with open(labels_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["filename", "score", "timestamp"])
+            
+            now = datetime.now(timezone.utc).isoformat()
+            for path, score in updates:
+                writer.writerow([path, score, now])
+
+
 def train():
     start_time = time.time()
+    sync_human_scores()
+    
     features_path = "./data/features.pkl"
     labels_path = "./data/labels.csv"
     model_path = "./data/models/aesthetic_predictor.pkl"

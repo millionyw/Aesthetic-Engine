@@ -3,6 +3,7 @@ import os
 import pickle
 import time
 from pathlib import Path
+from typing import Any
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 os.environ["TORCH_HOME"] = "./data/models/torch_cache"
@@ -14,7 +15,22 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from transformers import CLIPModel, CLIPProcessor
+import transformers
+try:
+    from transformers import AutoModel
+except ImportError:
+    try:
+        from transformers.models.auto import AutoModel
+    except ImportError:
+        from transformers import CLIPModel as AutoModel
+
+try:
+    from transformers import AutoProcessor
+except ImportError:
+    try:
+        from transformers.models.auto import AutoProcessor
+    except ImportError:
+        from transformers import CLIPProcessor as AutoProcessor
 from ultralytics import YOLO
 
 
@@ -36,7 +52,7 @@ class ImageFolderDataset(Dataset):
     def __getitem__(self, idx):
         path = self.paths[idx]
         image = Image.open(path).convert("RGB")
-        return path.name, image
+        return str(path.resolve()), image
 
 
 def collate_fn(batch):
@@ -67,11 +83,22 @@ def safe_normalize(tensor: torch.Tensor):
     return tensor / torch.where(norms == 0, torch.ones_like(norms), norms)
 
 
+def load_features(path: str):
+    if not os.path.exists(path):
+        return {}
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+
 def build_models(device: torch.device):
     model_name = "openai/clip-vit-large-patch14"
     local_model_dir = ensure_model_local(model_name, "./data/models/clip-vit-large-patch14")
-    processor = CLIPProcessor.from_pretrained(local_model_dir, local_files_only=True)
-    clip_model = CLIPModel.from_pretrained(local_model_dir, local_files_only=True)
+    processor = AutoProcessor.from_pretrained(local_model_dir, local_files_only=True)
+    clip_model = AutoModel.from_pretrained(local_model_dir, local_files_only=True)
     clip_model.to(device)
     clip_model.eval()
 
@@ -82,7 +109,7 @@ def build_models(device: torch.device):
     return clip_model, processor, yolo_model, mtcnn, resnet
 
 
-def clip_feature(image: Image.Image, clip_model: CLIPModel, processor: CLIPProcessor, device: torch.device):
+def clip_feature(image: Image.Image, clip_model: Any, processor: Any, device: torch.device):
     inputs = processor(images=image, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
     with torch.no_grad():
@@ -138,8 +165,8 @@ def face_feature(image: Image.Image, mtcnn: MTCNN, resnet: InceptionResnetV1, de
 
 def extract_hybrid_feature(
     image: Image.Image,
-    clip_model: CLIPModel,
-    processor: CLIPProcessor,
+    clip_model: Any,
+    processor: Any,
     yolo_model: YOLO,
     mtcnn: MTCNN,
     resnet: InceptionResnetV1,
@@ -175,20 +202,23 @@ def extract_features(
     models = build_models(device)
 
     dataset = ImageFolderDataset(input_dir)
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=device.type == "cuda",
-        collate_fn=collate_fn,
-    )
+    features = load_features(output_path)
+    if len(features) > 0:
+        dataset.paths = [p for p in dataset.paths if str(p.resolve()) not in features]
 
-    features = {}
-    for names, images in tqdm(loader, desc="Extracting", unit="batch"):
-        hybrid = extract_hybrid_features(images, models, device)
-        for name, vector in zip(names, hybrid):
-            features[name] = vector.detach().cpu()
+    if len(dataset) > 0:
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=device.type == "cuda",
+            collate_fn=collate_fn,
+        )
+        for names, images in tqdm(loader, desc="Extracting", unit="batch"):
+            hybrid = extract_hybrid_features(images, models, device)
+            for name, vector in zip(names, hybrid):
+                features[name] = vector.detach().cpu()
 
     output_dir = os.path.dirname(output_path)
     if output_dir:

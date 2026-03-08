@@ -7,3 +7,5 @@ pandas
 scikit-learn
 facenet-pytorch
 ultralytics
+faiss-cpu
+ruff

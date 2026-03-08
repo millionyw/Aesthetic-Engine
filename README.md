@@ -13,6 +13,7 @@
 - **⌨️ 键盘流操作**：集成 `streamlit-shortcuts`，支持 `A/D` 或 `←/→` 快速翻页，`Esc` 关闭预览。
 - **🧠 主动学习闭环**：标注后模型后台静默重训，评分实时更新并支持解释性分析。
 - **🗄️ 工业级存储**：SQLite 存储评分与元数据，Pickle 缓存特征张量，保证数据安全与读取性能。
+- **⚔️ 双向排序竞技场 (Versus Arena)**：支持 Elo 与 Reward Model 排行切换、σ 与 LCC 徽标展示、分页与 PDF 导出（随引擎切换）。
 
 ---
 
@@ -93,18 +94,44 @@
 ├── data/
 │   ├── raw_images/        # 图片原片
 │   ├── models/            # 离线模型权重缓存
+│   │   └── aesthetic_predictor.pkl  # 审美回归模型与标准化器
 │   ├── gallery.db         # SQLite 数据库（分数、路径、时间）
-│   └── features.pkl       # 2048 维特征张量
+│   ├── features.pkl       # 2048 维多模态特征缓存
+│   ├── labels.csv         # 单图评分记录
+│   └── pairwise_labels.csv# 两两对比记录（winner, loser, timestamp）
 ├── src/
 │   ├── app.py             # Streamlit 交互大厅
 │   ├── ingest_images.py   # 数据入库流水线
 │   ├── feature_extractor.py # 多模态特征提取核心
 │   ├── train.py           # 模型训练与增量更新
-│   └── db.py              # 数据库底层操作
+│   ├── db.py              # 数据库底层操作
+│   ├── ranking_engine.py  # Elo 排序、连通性/LCC、混合采样
+│   ├── reward_engine.py   # Reward Model 泛化评分与不确定性采样
+│   └── export_engine.py   # PDF 导出（自适应布局与高 DPI）
+├── src/pages/
+│   └── 1_Versus_Arena.py  # 双向排序竞技场页面
 ├── scripts/
 │   └── setup_env.ps1
 └── requirements.txt
 ```
+
+---
+
+## ⚔️ 双向排序竞技场 (Versus Arena)
+
+- 启动：
+
+  ```bash
+  streamlit run src/pages/1_Versus_Arena.py
+  ```
+
+- 操作与功能：
+  - `A` / `←` 选左图，`D` / `→` 选右图，`S` 跳过
+  - 右侧“审美巅峰榜”：
+    - Elo / Reward Model 排行切换（Radio）
+    - “仅显示已比对次数 > 3”（Toggle）
+    - 显示 σ、LCC 徽标（🌐）或 RM 徽标（🧠）
+    - 分页浏览，PDF 导出随当前引擎生成
 
 ---
 
@@ -114,6 +141,8 @@
 - **Algorithm**: Scikit-Learn (Ridge Regression)
 - **Frontend**: Streamlit
 - **Database**: SQLite
+- **Ranking**: Elo + Reward Model（可切换），混合采样（桥接/探索/校准/精修）
+- **Export**: PDF 导出（保持长宽比、自适应布局、更高清晰度）
 
 ---
 
@@ -122,3 +151,27 @@
 这个项目的初衷是解决“收藏夹图片太多却难以筛选”的问题。通过 2048 维混合特征，AI 不仅能读懂图片语义（CLIP），还能感知你对人脸比例或身材曲线的偏好。
 
 **欢迎 Fork 并开启你的私有化审美进化之路！**
+
+---
+
+## 🔧 开发者指南
+
+- Lint：
+
+  ```powershell
+  conda run -n aesthetic312 ruff check .
+  conda run -n aesthetic312 ruff check . --fix
+  ```
+
+- 常用命令：
+
+  ```powershell
+  # 工作台
+  streamlit run src/app.py
+
+  # 竞技场
+  streamlit run src/pages/1_Versus_Arena.py
+
+  # 训练
+  python src/train.py
+  ```

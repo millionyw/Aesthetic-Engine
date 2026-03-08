@@ -6,6 +6,7 @@ from pathlib import Path
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 
+import numpy as np
 import torch
 from PIL import Image
 
@@ -47,8 +48,8 @@ def extract_missing_features(
     missing = [
         p
         for p in image_paths
-        if p.name not in features
-        or (expected_dim is not None and features[p.name].shape[-1] != expected_dim)
+        if str(p.resolve()) not in features
+        or (expected_dim is not None and features[str(p.resolve())].shape[-1] != expected_dim)
     ]
     if not missing:
         return
@@ -57,7 +58,7 @@ def extract_missing_features(
         images = [Image.open(p).convert("RGB") for p in batch]
         hybrid = extract_hybrid_features(images, models, device).cpu()
         for path, vector in zip(batch, hybrid):
-            features[path.name] = vector
+            features[str(path.resolve())] = vector
 
 
 def load_predictor(path: str):
@@ -80,12 +81,29 @@ def ingest_images(src: str):
     device = get_device()
     models = build_models(device)
 
-    data = load_predictor(model_path)
-    if data is None:
-        print("未找到训练模型")
-        return
-    predictor = data["model"]
-    scaler = data["scaler"]
+    rm_path = "./data/models/rm_predictor.pkl"
+    ridge_path = "./data/models/aesthetic_predictor.pkl"
+    
+    rm_data = load_predictor(rm_path)
+    is_rm = False
+    
+    if rm_data:
+        print("使用 Reward Model (Logistic Regression)")
+        predictor = rm_data["model"]
+        scaler = rm_data["scaler"]
+        raw_min = rm_data.get("raw_min", 0.0)
+        raw_max = rm_data.get("raw_max", 1.0)
+        is_rm = True
+    else:
+        ridge_data = load_predictor(ridge_path)
+        if ridge_data:
+            print("使用 Ridge Model")
+            predictor = ridge_data["model"]
+            scaler = ridge_data["scaler"]
+        else:
+            print("未找到训练模型")
+            return
+
     expected_dim = getattr(predictor, "n_features_in_", None)
 
     features = load_features(features_path)
@@ -100,7 +118,7 @@ def ingest_images(src: str):
     with open(features_path, "wb") as f:
         pickle.dump(features, f)
 
-    valid = [(p, features[p.name]) for p in image_paths if p.name in features]
+    valid = [(p, features[str(p.resolve())]) for p in image_paths if str(p.resolve()) in features]
     if len(valid) == 0:
         print("未找到可用特征")
         return
@@ -108,7 +126,20 @@ def ingest_images(src: str):
     paths, vectors = zip(*valid)
     vector_array = torch.stack(list(vectors), dim=0).cpu().numpy()
     vector_array = scaler.transform(vector_array)
-    scores = predictor.predict(vector_array)
+    
+    if is_rm:
+        # Logistic Regression decision_function returns raw scores (dot product)
+        raw_scores = predictor.decision_function(vector_array)
+        # Normalize to 0-100
+        if raw_max != raw_min:
+            norm_scores = (raw_scores - raw_min) / (raw_max - raw_min) * 100
+        else:
+            norm_scores = raw_scores
+        # Map 0-100 to 0.0-5.0
+        scores = norm_scores / 20.0
+        scores = np.clip(scores, 0.0, 5.0)
+    else:
+        scores = predictor.predict(vector_array)
 
     for path, score in zip(paths, scores):
         upsert_image(str(path.resolve()), float(score))
